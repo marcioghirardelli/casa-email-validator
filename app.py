@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Painel de validacao de emails da Casa da Midia. Flask + SQLite. Persistencia em DATA_DIR."""
-import os, csv, io, json, uuid, sqlite3, datetime
+import os, csv, io, json, uuid, sqlite3, datetime, traceback
 from flask import Flask, request, redirect, url_for, send_file, abort, render_template_string
 import validator
 
@@ -146,6 +146,10 @@ def download(job_id, bucket):
 
 @app.route("/health")
 def health(): return "ok"
+
+@app.errorhandler(Exception)
+def _err(e):
+    return "<pre>ERRO:\n" + traceback.format_exc() + "</pre>", 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
