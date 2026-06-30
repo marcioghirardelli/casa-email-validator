@@ -120,37 +120,54 @@ def smtp_probe(domain, addresses, mail_from):
     return result, False
 
 # ---------- pipeline ----------
-def validate(emails, smtp=False, mail_from="validador@casadamidia.com"):
+def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress=None):
     seen, uniq = set(), []
     for e in emails:
         if e and e not in seen: seen.add(e); uniq.append(e)
     pre = {}
     by_domain = defaultdict(list)
+    smtp_on = bool(smtp) and port25_open()
+    total = len(uniq) + (0 if not smtp_on else 0)  # ajustado abaixo p/ fase SMTP
+    done = 0
+    def tick():
+        nonlocal done
+        done += 1
+        if progress and (done % 5 == 0 or done == total):
+            try: progress(done, total)
+            except Exception: pass
     for email in uniq:
         rec = {"email": email, "status": None, "motivo": "", "mx": "", "score": 0}
         if not EMAIL_RE.match(email):
-            rec.update(status="invalido", motivo="sintaxe"); pre[email]=rec; continue
+            rec.update(status="invalido", motivo="sintaxe"); pre[email]=rec; tick(); continue
         local, domain = email.split("@",1)
         if domain in DISPOSABLE_DOMAINS:
-            rec.update(status="invalido", motivo="descartavel"); pre[email]=rec; continue
+            rec.update(status="invalido", motivo="descartavel"); pre[email]=rec; tick(); continue
         hosts = mx_records(domain)
         if not hosts:
-            rec.update(status="invalido", motivo="sem-servidor-de-email"); pre[email]=rec; continue
+            rec.update(status="invalido", motivo="sem-servidor-de-email"); pre[email]=rec; tick(); continue
         rec["mx"] = "mx"
         if local in ROLE_LOCALPARTS:
             rec["motivo"]="role-based"; rec["score"]=50
-        pre[email]=rec; by_domain[domain].append(email)
+        pre[email]=rec; by_domain[domain].append(email); tick()
 
     smtp_used = False
-    if smtp and port25_open():
+    if smtp_on:
         smtp_used = True
-        for d, addrs in by_domain.items():
-            pend = [a for a in addrs if pre[a]["status"] is None]
-            if not pend: continue
+        doms = [d for d in by_domain if any(pre[a]["status"] is None for a in by_domain[d])]
+        total = len(uniq) + len(doms)
+        if progress:
+            try: progress(done, total)
+            except Exception: pass
+        for d in doms:
+            pend = [a for a in by_domain[d] if pre[a]["status"] is None]
             res, catch = smtp_probe(d, pend, mail_from)
             for a in pend:
                 if catch: pre[a]["smtp"]="catch-all"; pre[a]["motivo"]=(pre[a]["motivo"]+"+catch-all").strip("+")
                 else: pre[a]["smtp"]=res.get(a,"unknown")
+            done += 1
+            if progress and (done % 3 == 0 or done == total):
+                try: progress(done, total)
+                except Exception: pass
 
     for email, rec in pre.items():
         if rec["status"]: continue
@@ -164,4 +181,7 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com"):
                        score=max(rec.get("score",0),40))
         else:
             rec.update(status="enviar", motivo="mx-ok (caixa nao verificada)", score=10)
+    if progress:
+        try: progress(max(total,1), max(total,1))
+        except Exception: pass
     return list(pre.values()), smtp_used
