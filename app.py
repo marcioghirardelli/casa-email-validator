@@ -161,7 +161,7 @@ def render(body, **kw):
 @app.route("/")
 def home():
     with db() as c:
-        jobs = c.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100").fetchall()
+        jobs = c.execute("SELECT * FROM jobs ORDER BY rowid DESC LIMIT 100").fetchall()
     return render(HOME, jobs=jobs)
 
 @app.route("/upload", methods=["POST"])
