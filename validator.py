@@ -24,6 +24,9 @@ BIG_PROVIDERS = {
     "gmail.com","googlemail.com","hotmail.com","hotmail.com.br","outlook.com","outlook.com.br",
     "live.com","live.com.br","msn.com","yahoo.com","yahoo.com.br","ymail.com","rocketmail.com",
     "icloud.com","me.com","mac.com","aol.com","proton.me","protonmail.com","gmx.com","mail.com",
+    # provedores de consumo brasileiros (comuns e tarpit; emails pessoais, nao B2B)
+    "uol.com.br","bol.com.br","terra.com.br","ig.com.br","superig.com.br","globo.com","globomail.com",
+    "r7.com","oi.com.br","pop.com.br","zipmail.com.br","yahoo.com","hotmail.es",
 }
 
 DISPOSABLE_DOMAINS = {
