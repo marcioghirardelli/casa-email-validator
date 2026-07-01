@@ -148,10 +148,11 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress
             try: progress(done, total)
             except Exception: pass
     for email in uniq:
-        rec = {"email": email, "status": None, "motivo": "", "mx": "", "score": 0}
+        rec = {"email": email, "status": None, "motivo": "", "mx": "", "score": 0, "tipo": "-"}
         if not EMAIL_RE.match(email):
             rec.update(status="invalido", motivo="sintaxe"); pre[email]=rec; tick(); continue
         local, domain = email.split("@",1)
+        rec["tipo"] = "provedor" if domain in BIG_PROVIDERS else "corporativo"
         if domain in DISPOSABLE_DOMAINS:
             rec.update(status="invalido", motivo="descartavel"); pre[email]=rec; tick(); continue
         hosts = mx_records(domain)

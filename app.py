@@ -33,6 +33,9 @@ def init_db():
             total INTEGER DEFAULT 0, done INTEGER DEFAULT 0,
             enviar INTEGER DEFAULT 0, arriscado INTEGER DEFAULT 0, invalido INTEGER DEFAULT 0,
             smtp INTEGER DEFAULT 0, erro TEXT DEFAULT '')""")
+        for col in ("corp","prov"):   # colunas novas (contagens dentro de 'enviar')
+            try: c.execute(f"ALTER TABLE jobs ADD COLUMN {col} INTEGER DEFAULT 0")
+            except Exception: pass
 init_db()
 
 # ---------- worker em background ----------
@@ -44,16 +47,23 @@ def run_job(jid, emails, smtp):
         recs, smtp_used = validator.validate(emails, smtp=smtp, progress=progress)
         buckets = {"enviar": [], "arriscado": [], "invalido": []}
         for r in recs: buckets[r["status"]].append(r)
+        # split do 'enviar' por tipo
+        enviar_corp = [r for r in buckets["enviar"] if r.get("tipo") == "corporativo"]
+        enviar_prov = [r for r in buckets["enviar"] if r.get("tipo") == "provedor"]
         jdir = os.path.join(JOBS_DIR, jid); os.makedirs(jdir, exist_ok=True)
-        for b, rows in buckets.items():
-            with open(os.path.join(jdir, f"{b}.csv"), "w", newline="", encoding="utf-8-sig") as fh:
-                w = csv.writer(fh); w.writerow(["email","status","motivo","mx","score"])
-                for r in rows: w.writerow([r["email"],r["status"],r.get("motivo",""),r.get("mx",""),r.get("score",0)])
+        def write_csv(name, rows):
+            with open(os.path.join(jdir, name), "w", newline="", encoding="utf-8-sig") as fh:
+                w = csv.writer(fh); w.writerow(["email","status","tipo","motivo","mx","score"])
+                for r in rows:
+                    w.writerow([r["email"],r["status"],r.get("tipo","-"),r.get("motivo",""),r.get("mx",""),r.get("score",0)])
+        write_csv("enviar.csv", buckets["enviar"]); write_csv("arriscado.csv", buckets["arriscado"])
+        write_csv("invalido.csv", buckets["invalido"])
+        write_csv("enviar-corp.csv", enviar_corp); write_csv("enviar-prov.csv", enviar_prov)
         with db() as c:
             c.execute("""UPDATE jobs SET status='concluido', total=?, done=?,
-                         enviar=?, arriscado=?, invalido=?, smtp=? WHERE id=?""",
+                         enviar=?, arriscado=?, invalido=?, smtp=?, corp=?, prov=? WHERE id=?""",
                       (len(recs), len(recs), len(buckets["enviar"]), len(buckets["arriscado"]),
-                       len(buckets["invalido"]), int(smtp_used), jid))
+                       len(buckets["invalido"]), int(smtp_used), len(enviar_corp), len(enviar_prov), jid))
     except Exception as e:
         with db() as c:
             c.execute("UPDATE jobs SET status='erro', erro=? WHERE id=?", (str(e)[:500], jid))
@@ -147,12 +157,20 @@ JOB = """
     <div class=box><div class="n" style="color:#9a6700">{{ j['arriscado'] }}</div><div class=l>Arriscado</div></div>
     <div class=box><div class="n" style="color:#b42318">{{ j['invalido'] }}</div><div class=l>Invalido</div></div>
   </div>
+  <div class=kpi style="margin-top:14px">
+    <div class=box><div class="n" style="color:#1a7f37">{{ j['corp'] }}</div><div class=l>Enviar &middot; corporativos (B2B)</div></div>
+    <div class=box><div class="n" style="color:#6b7280">{{ j['prov'] }}</div><div class=l>Enviar &middot; provedores (gmail, etc.)</div></div>
+  </div>
   <p style="margin-top:18px">
-    <a class="btn orange" href="{{ url_for('download', job_id=j['id'], bucket='enviar') }}">Baixar emails bons (enviar)</a>
-    <a class="btn" href="{{ url_for('download', job_id=j['id'], bucket='arriscado') }}">Arriscado</a>
-    <a class="btn" href="{{ url_for('download', job_id=j['id'], bucket='invalido') }}">Invalido</a>
+    <a class="btn orange" href="{{ url_for('download', job_id=j['id'], bucket='enviar-corp') }}">Baixar corporativos (B2B)</a>
+    <a class="btn" href="{{ url_for('download', job_id=j['id'], bucket='enviar-prov') }}">Baixar provedores</a>
+    <a class="btn" href="{{ url_for('download', job_id=j['id'], bucket='enviar') }}">Enviar (tudo)</a>
   </p>
-  <p class=muted>Mande os de "enviar". "Arriscado" = role/catch-all/nao verificado. "Invalido" = nao envie.</p>
+  <p style="margin-top:6px">
+    <a href="{{ url_for('download', job_id=j['id'], bucket='arriscado') }}">arriscado</a> &middot;
+    <a href="{{ url_for('download', job_id=j['id'], bucket='invalido') }}">invalido</a>
+  </p>
+  <p class=muted>Corporativo = dominio proprio (alvo B2B). Provedor = gmail/hotmail/outlook/uol... (email pessoal).</p>
 </div>"""
 
 def render(body, **kw):
@@ -200,7 +218,7 @@ def status(job_id):
 
 @app.route("/download/<job_id>/<bucket>")
 def download(job_id, bucket):
-    if bucket not in ("enviar","arriscado","invalido"): abort(404)
+    if bucket not in ("enviar","arriscado","invalido","enviar-corp","enviar-prov"): abort(404)
     path = os.path.join(JOBS_DIR, job_id, f"{bucket}.csv")
     if not os.path.exists(path): abort(404)
     return send_file(path, as_attachment=True, download_name=f"{bucket}-{job_id}.csv")
