@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Nucleo de validacao de emails (portavel). MX via dnspython, SMTP/catch-all opcional."""
-import re, csv, io, socket, random, string, time
+import re, csv, io, os, socket, random, string, time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -35,6 +35,21 @@ DISPOSABLE_DOMAINS = {
     "maildrop.cc","fakeinbox.com","mailnesia.com","mohmal.com","emailondeck.com","tempr.email",
     "spamgourmet.com","mintemail.com","mailcatch.com","tempinbox.com","33mail.com","mvrht.net",
 }
+
+def _load_disposable():
+    """Une a lista embutida (fallback) com a lista grande do arquivo (disposable-email-domains)."""
+    s = set(DISPOSABLE_DOMAINS)
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "disposable_domains.txt")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                d = line.strip().lower()
+                if d and not d.startswith("#"): s.add(d)
+    except Exception:
+        pass
+    return s
+
+DISPOSABLE = _load_disposable()
 
 # ---------- leitura de planilhas ----------
 def extract_emails_from_bytes(filename, data):
@@ -153,7 +168,7 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress
             rec.update(status="invalido", motivo="sintaxe"); pre[email]=rec; tick(); continue
         local, domain = email.split("@",1)
         rec["tipo"] = "provedor" if domain in BIG_PROVIDERS else "corporativo"
-        if domain in DISPOSABLE_DOMAINS:
+        if domain in DISPOSABLE:
             rec.update(status="invalido", motivo="descartavel"); pre[email]=rec; tick(); continue
         hosts = mx_records(domain)
         if not hosts:
