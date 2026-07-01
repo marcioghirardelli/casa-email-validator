@@ -18,6 +18,14 @@ ROLE_LOCALPARTS = {
     "suporte","support","atendimento","faleconosco","marketing","rh","compras","noreply","no-reply",
     "naoresponda","postmaster","webmaster","abuse","hello","ola","ouvidoria","cobranca","diretoria",
 }
+# Provedores grandes: fazem tarpit/greylisting e escondem se a caixa existe.
+# Probar por SMTP e lento e quase sempre inconclusivo -> pulamos (viram mx-ok = enviar).
+BIG_PROVIDERS = {
+    "gmail.com","googlemail.com","hotmail.com","hotmail.com.br","outlook.com","outlook.com.br",
+    "live.com","live.com.br","msn.com","yahoo.com","yahoo.com.br","ymail.com","rocketmail.com",
+    "icloud.com","me.com","mac.com","aol.com","proton.me","protonmail.com","gmx.com","mail.com",
+}
+
 DISPOSABLE_DOMAINS = {
     "mailinator.com","yopmail.com","guerrillamail.com","10minutemail.com","tempmail.com","temp-mail.org",
     "trashmail.com","throwawaymail.com","getnada.com","sharklasers.com","grr.la","dispostable.com",
@@ -154,13 +162,15 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress
     smtp_used = False
     if smtp_on:
         smtp_used = True
-        doms = [d for d in by_domain if any(pre[a]["status"] is None for a in by_domain[d])]
+        # pula provedores grandes (tarpit/inconclusivo): ficam mx-ok=enviar, sem gastar tempo
+        doms = [d for d in by_domain
+                if d not in BIG_PROVIDERS and any(pre[a]["status"] is None for a in by_domain[d])]
         total = len(uniq) + len(doms)
         if progress:
             try: progress(done, total)
             except Exception: pass
         # paraleliza: varios dominios ao mesmo tempo (as_completed atualiza progresso no thread principal)
-        with ThreadPoolExecutor(max_workers=15) as ex:
+        with ThreadPoolExecutor(max_workers=25) as ex:
             futs = {}
             for d in doms:
                 pend = [a for a in by_domain[d] if pre[a]["status"] is None]
