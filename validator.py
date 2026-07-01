@@ -176,11 +176,14 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress
             rec.update(status="invalido", motivo="smtp-rejeitou", score=100)
         elif smtp_r == "valid" and "role" not in motivo:
             rec.update(status="enviar", motivo="smtp-confirmado", score=0)
-        elif motivo.startswith("role") or "catch-all" in motivo or smtp_r in ("unknown","catch-all"):
-            rec.update(status="arriscado", motivo=motivo or ("mx-ok/"+(smtp_r or "nao-verificado")),
+        elif motivo.startswith("role") or "catch-all" in motivo or smtp_r == "catch-all":
+            # role-based ou dominio catch-all: incerteza real
+            rec.update(status="arriscado", motivo=(motivo or "catch-all"),
                        score=max(rec.get("score",0),40))
         else:
-            rec.update(status="enviar", motivo="mx-ok (caixa nao verificada)", score=10)
+            # inclui smtp 'unknown' (nao deu pra verificar): trata como mx-ok, nao pune
+            note = "mx-ok (caixa nao verificada)" if smtp_r is None else "mx-ok (smtp nao conclusivo)"
+            rec.update(status="enviar", motivo=note, score=10)
     if progress:
         try: progress(max(total,1), max(total,1))
         except Exception: pass

@@ -13,6 +13,10 @@ os.makedirs(JOBS_DIR, exist_ok=True)
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
+BR_TZ = datetime.timezone(datetime.timedelta(hours=-3))  # Brasilia (sem horario de verao desde 2019)
+def agora_br():
+    return datetime.datetime.now(BR_TZ).strftime("%d/%m/%Y %H:%M")
+
 def db():
     c = sqlite3.connect(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
@@ -173,7 +177,7 @@ def upload():
     jid = uuid.uuid4().hex[:12]
     with db() as c:
         c.execute("INSERT INTO jobs(id,created_at,arquivos,status,total,done,smtp) VALUES(?,?,?,?,?,?,?)",
-                  (jid, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                  (jid, agora_br(),
                    ", ".join(names)[:300], "processando", len(emails), 0, int(smtp)))
     threading.Thread(target=run_job, args=(jid, emails, smtp), daemon=True).start()
     return redirect(url_for("job", job_id=jid))
