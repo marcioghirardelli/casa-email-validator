@@ -2,6 +2,7 @@
 """Nucleo de validacao de emails (portavel). MX via dnspython, SMTP/catch-all opcional."""
 import re, csv, io, socket, random, string, time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     import dns.resolver
@@ -101,7 +102,7 @@ def smtp_probe(domain, addresses, mail_from):
     hosts = mx_records(domain)
     if not hosts: return result, False
     try:
-        srv = smtplib.SMTP(timeout=12); srv.connect(hosts[0], 25)
+        srv = smtplib.SMTP(timeout=7); srv.connect(hosts[0], 25)
         srv.helo(mail_from.split("@")[-1]); srv.mail(mail_from)
         rnd = "".join(random.choice(string.ascii_lowercase) for _ in range(12)) + "@" + domain
         code,_ = srv.rcpt(rnd)
@@ -113,7 +114,7 @@ def smtp_probe(domain, addresses, mail_from):
                 result[a] = "valid" if code in (250,251) else ("invalid" if 500<=code<600 else "unknown")
             except Exception:
                 result[a] = "unknown"
-            time.sleep(0.25)
+            time.sleep(0.05)
         srv.quit()
     except Exception:
         pass
@@ -158,16 +159,23 @@ def validate(emails, smtp=False, mail_from="validador@casadamidia.com", progress
         if progress:
             try: progress(done, total)
             except Exception: pass
-        for d in doms:
-            pend = [a for a in by_domain[d] if pre[a]["status"] is None]
-            res, catch = smtp_probe(d, pend, mail_from)
-            for a in pend:
-                if catch: pre[a]["smtp"]="catch-all"; pre[a]["motivo"]=(pre[a]["motivo"]+"+catch-all").strip("+")
-                else: pre[a]["smtp"]=res.get(a,"unknown")
-            done += 1
-            if progress and (done % 3 == 0 or done == total):
-                try: progress(done, total)
-                except Exception: pass
+        # paraleliza: varios dominios ao mesmo tempo (as_completed atualiza progresso no thread principal)
+        with ThreadPoolExecutor(max_workers=15) as ex:
+            futs = {}
+            for d in doms:
+                pend = [a for a in by_domain[d] if pre[a]["status"] is None]
+                futs[ex.submit(smtp_probe, d, pend, mail_from)] = (d, pend)
+            for fut in as_completed(futs):
+                d, pend = futs[fut]
+                try: res, catch = fut.result()
+                except Exception: res, catch = {}, False
+                for a in pend:
+                    if catch: pre[a]["smtp"]="catch-all"; pre[a]["motivo"]=(pre[a]["motivo"]+"+catch-all").strip("+")
+                    else: pre[a]["smtp"]=res.get(a,"unknown")
+                done += 1
+                if progress and (done % 3 == 0 or done == total):
+                    try: progress(done, total)
+                    except Exception: pass
 
     for email, rec in pre.items():
         if rec["status"]: continue
